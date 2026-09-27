@@ -20,10 +20,13 @@ openapi-generator-cli generate \
   --global-property apis,apiTests=true,models=false,modelTests=false,modelDocs=false,apiDocs=false,supportingFiles=false \
   --additional-properties=gemName=monzo,moduleName=Monzo
 
-# api tests can only be reached through the api pass, so the client is
-# generated and thrown away -- the specs talk to Monzo with net/http, and a
-# generated client would be a second thing to be wrong about the API.
-rm -rf lib .openapi-generator
+# api tests can only be reached through the api pass, so a client is generated
+# alongside them -- and .openapi-generator-ignore sends every file of it to the
+# floor, because the specs talk to Monzo with net/http and a generated client
+# would be a second thing to be wrong about the API. Only the generator's own
+# bookkeeping actually lands, so only that is removed here: `rm -rf lib` would
+# take lib/monzo/version.rb, which is this repository's own.
+rm -rf .openapi-generator
 
 echo
 echo "generated:"
