@@ -1,0 +1,15 @@
+# Everything the generator would write that is NOT the specs. It is told to
+# emit only api tests, but the Ruby generator writes a Gemfile and a
+# spec_helper of its own regardless, and both are hand-written here: the
+# helper is what "conforming" means, and it is the point of the repository.
+Gemfile
+Gemfile.lock
+gemset.nix
+.rspec
+spec/spec_helper.rb
+spec/fixtures.yml
+README.md
+Rakefile
+*.gemspec
+lib/**
+docs/**

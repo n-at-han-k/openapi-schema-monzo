@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# One RSpec example per operation this document describes.
+#
+# The stock Ruby generator already groups operations by tag, which is the
+# grouping the specs want, so nothing here is a custom generator -- only its
+# test template is replaced. Everything else it would emit (a client, models,
+# its own scaffolding) is switched off: the specs talk to Monzo with net/http
+# and validate against the document itself.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+rm -rf spec/api
+
+openapi-generator-cli generate \
+  -i monzo_api.yaml \
+  -g ruby \
+  -t templates/rspec \
+  -o . \
+  --global-property apis,apiTests=true,models=false,modelTests=false,modelDocs=false,apiDocs=false,supportingFiles=false \
+  --additional-properties=gemName=monzo,moduleName=Monzo
+
+# api tests can only be reached through the api pass, so the client is
+# generated and thrown away -- the specs talk to Monzo with net/http, and a
+# generated client would be a second thing to be wrong about the API.
+rm -rf lib .openapi-generator
+
+echo
+echo "generated:"
+ls spec/api

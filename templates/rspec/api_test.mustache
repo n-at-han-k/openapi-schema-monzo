@@ -1,0 +1,24 @@
+# frozen_string_literal: true
+#
+# GENERATED from monzo_api.yaml by bin/generate-specs. Do not edit.
+#
+# One example per operation the document describes. The example says WHICH
+# operation; spec_helper.rb says what conforming means -- it reads this same
+# document at runtime, so the schema in it is the assertion and nothing here
+# restates it.
+
+require 'spec_helper'
+
+RSpec.describe '{{classname}}' do
+{{#operations}}
+{{#operation}}
+  describe '{{httpMethod}} {{path}}' do
+    it 'answers a documented status, with a body matching the schema' do
+      Monzo.verify(example: self, method: '{{httpMethod}}', path: '{{path}}',
+                   operation_id: '{{operationId}}')
+    end
+  end
+
+{{/operation}}
+{{/operations}}
+end

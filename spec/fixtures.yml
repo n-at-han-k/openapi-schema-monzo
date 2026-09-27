@@ -1,0 +1,27 @@
+# The values this suite reads. It talks to a REAL Monzo account, so nothing is
+# invented: an id here is one you are content for a request to touch.
+#
+# A path parameter or a required query argument with no value here skips its
+# examples rather than guessing -- a 400 that passes because 400 is documented
+# proves nothing.
+#
+# Fill in your own ids. `MONZO_TOKEN=... bundle exec rspec` with the file as it
+# stands checks /accounts and /ping/whoami and skips the rest.
+params:
+  # pot_id: pot_0000778xxfgh4iu8z83nWb
+  # transaction_id: tx_00008zIcpb1TB4yeIFXMzx
+  # webhook_id: webhook_000091yhhOmrXQaVZ1Irsv
+
+paths:
+  # /balance:
+  #   query: { account_id: acc_00009237aqC8c5umZmrRdh }
+  # /pots:
+  #   query: { current_account_id: acc_00009237aqC8c5umZmrRdh }
+  # /transactions:
+  #   query: { account_id: acc_00009237aqC8c5umZmrRdh, limit: 10, "expand[]": merchant }
+  # /transactions/{transaction_id}:
+  #   query: { "expand[]": merchant }
+  # /webhooks:
+  #   query: { account_id: acc_00009237aqC8c5umZmrRdh }
+  # /transaction-receipts:
+  #   query: { external_id: test-receipt-1 }

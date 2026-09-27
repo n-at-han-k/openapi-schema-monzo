@@ -1,0 +1,1249 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+# A description of the Monzo Developer API, written from the reference at
+# https://docs.monzo.com. Monzo publishes prose, not a machine-readable
+# description; this is that prose turned into one, and nothing here is
+# invented -- a field the reference does not mention is not described, and a
+# field it describes without a type is typed from its own examples.
+
+openapi: "3.1.0"
+info:
+  title: Monzo API
+  description: |
+    The Monzo Developer API: accounts, balances, pots, transactions, feed
+    items, attachments, receipts and webhooks.
+
+    Monzo's reference notes that the Developer API "is not suitable for
+    building public applications" -- a client may only reach its own account
+    or a small set of accounts it explicitly allows.
+
+    Transactions carry more properties than the reference documents ("Most
+    properties on transactions are self-explanatory. We'll eventually get
+    around to documenting them all"), so no object here forbids properties it
+    does not name.
+
+    The reference also lists 405, 406, 429, 500 and 504 as codes any endpoint
+    may answer. They are not repeated on every operation below: they say
+    nothing about the endpoint, only about the request or the day Monzo is
+    having.
+  version: "0.1.0"
+  license:
+    name: LGPL-2.1-or-later
+    identifier: LGPL-2.1-or-later
+externalDocs:
+  url: https://docs.monzo.com
+  description: Official documentation
+servers:
+  - url: https://api.monzo.com
+security:
+  - bearerAuth: []
+tags:
+  - name: Authentication
+  - name: Accounts
+  - name: Balance
+  - name: Pots
+  - name: Transactions
+  - name: Feed items
+  - name: Attachments
+  - name: Receipts
+  - name: Webhooks
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Every request carries an access token from the OAuth 2.0 flow. A client
+        may hold only one active access token per user; acquiring another
+        invalidates the first.
+
+  parameters:
+    accountId:
+      name: account_id
+      in: query
+      required: true
+      description: The id of the account.
+      schema:
+        type: string
+        examples: ["acc_00009237aqC8c5umZmrRdh"]
+    limit:
+      name: limit
+      in: query
+      description: Results per page.
+      schema:
+        type: integer
+        default: 30
+        maximum: 100
+    since:
+      name: since
+      in: query
+      description: An RFC 3339 timestamp, or an object id.
+      schema:
+        type: string
+        examples: ["2009-11-10T23:00:00Z", "tx_00008zhJ3kE6c8kmsGUKgn"]
+    before:
+      name: before
+      in: query
+      description: An RFC 3339 timestamp.
+      schema:
+        type: string
+        format: date-time
+    expandMerchant:
+      name: expand[]
+      in: query
+      description: Objects to inline rather than leave as an id. Can be `merchant`.
+      explode: true
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [merchant]
+    externalId:
+      name: external_id
+      in: query
+      required: true
+      description: The external id of the receipt -- the one you generated.
+      schema:
+        type: string
+
+  responses:
+    empty:
+      description: Success. The body is an empty object.
+      content:
+        application/json:
+          schema:
+            type: object
+    "400":
+      description: |
+        The request has missing arguments or is malformed.
+
+        Also what an invalid or expired access token gets, with the code
+        `bad_request.invalid_token` -- the reference describes that as a 401,
+        but 400 is what the API answers, so every operation here describes it.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+    "401":
+      description: The request is not authenticated.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/authenticationError'
+    "403":
+      description: The request is authenticated but has insufficient permissions.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+    "404":
+      description: The endpoint requested does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/error'
+
+  schemas:
+    # The reference documents the response codes and the OAuth `error` key,
+    # but not the shape of an error body beyond that, so this is open.
+    error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+    authenticationError:
+      type: object
+      description: |
+        An authentication failure is an ordinary error that also carries the
+        `error` key the OAuth specification asks for.
+
+        In practice a bad token on an API call answers 400 rather than 401, so
+        this shape belongs to the token endpoints.
+      properties:
+        error:
+          type: string
+          examples: ["invalid_token"]
+        code:
+          type: string
+        message:
+          type: string
+
+    # Minor units of the currency: pennies for GBP, cents for EUR and USD.
+    # 64-bit, and negative on a transaction means a debit.
+    amount:
+      type: integer
+      format: int64
+
+    currency:
+      type: string
+      description: An ISO 4217 currency code.
+      examples: ["GBP"]
+
+    token:
+      type: object
+      required: [access_token, client_id, expires_in, token_type, user_id]
+      properties:
+        access_token:
+          type: string
+        client_id:
+          type: string
+        expires_in:
+          type: integer
+          description: Seconds until the access token expires.
+          examples: [21600]
+        refresh_token:
+          type: string
+          description: Issued to confidential clients only.
+        token_type:
+          type: string
+          examples: ["Bearer"]
+        user_id:
+          type: string
+
+    whoami:
+      type: object
+      required: [authenticated, client_id, user_id]
+      properties:
+        authenticated:
+          type: boolean
+        client_id:
+          type: string
+        user_id:
+          type: string
+
+    account:
+      type: object
+      required: [id, description, created]
+      properties:
+        id:
+          type: string
+          examples: ["acc_00009237aqC8c5umZmrRdh"]
+        description:
+          type: string
+          examples: ["Peter Pan's Account"]
+        created:
+          type: string
+          format: date-time
+
+    balance:
+      type: object
+      required: [balance, total_balance, currency, spend_today]
+      properties:
+        balance:
+          $ref: '#/components/schemas/amount'
+          description: The currently available balance of the account.
+        total_balance:
+          $ref: '#/components/schemas/amount'
+          description: |
+            The available balance plus the combined total of all the user's
+            pots.
+        currency:
+          $ref: '#/components/schemas/currency'
+        spend_today:
+          $ref: '#/components/schemas/amount'
+          description: |
+            Spent from this account today, counted from approximately 4am.
+
+    pot:
+      type: object
+      required: [id, name, style, balance, currency, created, updated, deleted]
+      properties:
+        id:
+          type: string
+          examples: ["pot_0000778xxfgh4iu8z83nWb"]
+        name:
+          type: string
+        style:
+          type: string
+          description: The pot background image.
+          examples: ["beach_ball"]
+        balance:
+          $ref: '#/components/schemas/amount'
+        currency:
+          $ref: '#/components/schemas/currency'
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
+        deleted:
+          type: boolean
+          description: |
+            Whether this pot is deleted. The reference notes that deleted pots
+            are still returned, for now.
+
+    merchantAddress:
+      type: object
+      properties:
+        address:
+          type: string
+        city:
+          type: string
+        country:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        postcode:
+          type: string
+        region:
+          type: string
+
+    merchant:
+      type: object
+      description: |
+        The merchant a transaction was made at. Returned as an id unless the
+        request asks for `expand[]=merchant`.
+      properties:
+        id:
+          type: string
+          examples: ["merch_00008zIcpbAKe8shBxXUtl"]
+        group_id:
+          type: string
+        created:
+          type: string
+          format: date-time
+        name:
+          type: string
+        logo:
+          type: string
+        emoji:
+          type: string
+        category:
+          $ref: '#/components/schemas/category'
+        address:
+          $ref: '#/components/schemas/merchantAddress'
+
+    category:
+      type: string
+      description: |
+        Set per transaction by the user; otherwise the merchant's default. The
+        reference lists these values, and gives `mondo` for top-ups.
+      enum:
+        - general
+        - eating_out
+        - expenses
+        - transport
+        - cash
+        - bills
+        - entertainment
+        - shopping
+        - holidays
+        - groceries
+        - mondo
+
+    transaction:
+      type: object
+      required: [id, amount, created, currency, description, metadata, is_load]
+      properties:
+        id:
+          type: string
+          examples: ["tx_00008zIcpb1TB4yeIFXMzx"]
+        account_id:
+          type: string
+        amount:
+          $ref: '#/components/schemas/amount'
+          description: |
+            Negative is a debit, which most card transactions are.
+        created:
+          type: string
+          format: date-time
+        currency:
+          $ref: '#/components/schemas/currency'
+        description:
+          type: string
+          examples: ["THE DE BEAUVOIR DELI C LONDON        GBR"]
+        category:
+          $ref: '#/components/schemas/category'
+        notes:
+          type: string
+        metadata:
+          type: object
+          description: |
+            Your own key-value annotations, private to your application.
+          additionalProperties:
+            type: string
+        is_load:
+          type: boolean
+          description: |
+            True for top-ups. A refund, reversal or chargeback also has a
+            positive amount, but `is_load` is false.
+        settled:
+          type: string
+          description: |
+            When the transaction settled, usually 24-48 hours after `created`.
+            An empty string means authorised but not yet complete -- which is
+            why this is not a `date-time`.
+        decline_reason:
+          type: string
+          description: Present on declined transactions only.
+          enum:
+            - INSUFFICIENT_FUNDS
+            - CARD_INACTIVE
+            - CARD_BLOCKED
+            - INVALID_CVC
+            - OTHER
+        merchant:
+          description: |
+            A merchant id, or the merchant itself when the request expanded it.
+          oneOf:
+            - type: string
+            - $ref: '#/components/schemas/merchant'
+            - type: 'null'
+
+    attachment:
+      type: object
+      required: [id, user_id, external_id, file_url, file_type, created]
+      properties:
+        id:
+          type: string
+          examples: ["attach_00009238aOAIvVqfb9LrZh"]
+        user_id:
+          type: string
+        external_id:
+          type: string
+          description: The id of the transaction the attachment is attached to.
+        file_url:
+          type: string
+        file_type:
+          type: string
+          examples: ["image/png"]
+        created:
+          type: string
+          format: date-time
+          description: In UTC.
+
+    receiptItem:
+      type: object
+      required: [description, amount, currency]
+      properties:
+        description:
+          type: string
+          examples: ["Burger"]
+        amount:
+          $ref: '#/components/schemas/amount'
+          description: |
+            With sub-items, the total of their amounts.
+        currency:
+          $ref: '#/components/schemas/currency'
+        quantity:
+          type: number
+          description: |
+            Floating point, so it can carry a weight such as `0.3`.
+        unit:
+          type: string
+          examples: ["kg"]
+        tax:
+          $ref: '#/components/schemas/amount'
+        sub_items:
+          type: array
+          description: |
+            Sub-items have the same shape as items, but cannot nest further.
+          items:
+            type: object
+            required: [description, amount, currency]
+            properties:
+              description:
+                type: string
+              amount:
+                $ref: '#/components/schemas/amount'
+              currency:
+                $ref: '#/components/schemas/currency'
+              quantity:
+                type: number
+              unit:
+                type: string
+              tax:
+                $ref: '#/components/schemas/amount'
+
+    receiptTax:
+      type: object
+      required: [description, amount, currency]
+      properties:
+        description:
+          type: string
+          examples: ["VAT"]
+        amount:
+          $ref: '#/components/schemas/amount'
+        currency:
+          $ref: '#/components/schemas/currency'
+        tax_number:
+          type: string
+          examples: ["945719291"]
+
+    receiptPayment:
+      type: object
+      required: [type, amount, currency]
+      properties:
+        type:
+          type: string
+          enum: [card, cash, gift_card]
+        amount:
+          $ref: '#/components/schemas/amount'
+        currency:
+          $ref: '#/components/schemas/currency'
+        last_four:
+          type: string
+          description: For `card` payments.
+        gift_card_type:
+          type: string
+          description: For `gift_card` payments.
+        bin:
+          type: string
+        auth_code:
+          type: string
+        aid:
+          type: string
+        mid:
+          type: string
+        tid:
+          type: string
+
+    receiptMerchant:
+      type: object
+      description: |
+        Where the purchase was made. A different object from the merchant on a
+        transaction.
+      properties:
+        name:
+          type: string
+        online:
+          type: boolean
+          description: True for ecommerce merchants, false for a physical store.
+        phone:
+          type: string
+        email:
+          type: string
+        store_name:
+          type: string
+          examples: ["Old Street"]
+        store_address:
+          type: string
+        store_postcode:
+          type: string
+
+    receipt:
+      type: object
+      required: [external_id, transaction_id, total, currency, items]
+      properties:
+        id:
+          type: string
+          description: Generated by Monzo when the receipt is submitted.
+          examples: ["receipt_00009NrKwNtI3gKqte"]
+        external_id:
+          type: string
+          description: |
+            Your own identifier, used as an idempotency key -- submitting the
+            same one again updates the receipt rather than adding another.
+        transaction_id:
+          type: string
+        total:
+          $ref: '#/components/schemas/amount'
+          description: Positive.
+        currency:
+          $ref: '#/components/schemas/currency'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/receiptItem'
+        taxes:
+          type: array
+          items:
+            $ref: '#/components/schemas/receiptTax'
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/receiptPayment'
+        merchant:
+          $ref: '#/components/schemas/receiptMerchant'
+
+    webhook:
+      type: object
+      required: [id, account_id, url]
+      properties:
+        id:
+          type: string
+          examples: ["webhook_000091yhhOmrXQaVZ1Irsv"]
+        account_id:
+          type: string
+        url:
+          type: string
+          examples: ["http://example.com/callback"]
+
+paths:
+  /oauth2/token:
+    post:
+      tags: [Authentication]
+      operationId: tokenPost
+      summary: Acquire or refresh an access token
+      description: |
+        Exchanges an authorization code for an access token, or a refresh token
+        for a new one. Refreshing invalidates the previous token and is a
+        one-time operation; only confidential clients hold refresh tokens.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              oneOf:
+                - type: object
+                  title: authorizationCode
+                  required: [grant_type, client_id, client_secret, redirect_uri, code]
+                  properties:
+                    grant_type:
+                      const: authorization_code
+                    client_id:
+                      type: string
+                    client_secret:
+                      type: string
+                    redirect_uri:
+                      type: string
+                      description: |
+                        The URL users were sent to after authorisation.
+                    code:
+                      type: string
+                - type: object
+                  title: refreshToken
+                  required: [grant_type, client_id, client_secret, refresh_token]
+                  properties:
+                    grant_type:
+                      const: refresh_token
+                    client_id:
+                      type: string
+                    client_secret:
+                      type: string
+                    refresh_token:
+                      type: string
+      responses:
+        "200":
+          description: The access token, and a refresh token for a confidential client.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/token'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+
+  /oauth2/logout:
+    post:
+      tags: [Authentication]
+      operationId: logoutPost
+      summary: Invalidate the access token
+      description: |
+        Invalidates the access token immediately rather than waiting for it to
+        expire. It cannot be refreshed afterwards; the user must authenticate
+        again.
+      responses:
+        "200": { $ref: '#/components/responses/empty' }
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+
+  /ping/whoami:
+    get:
+      tags: [Authentication]
+      operationId: whoamiGet
+      summary: Describe the access token
+      responses:
+        "200":
+          description: Who the access token belongs to.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/whoami'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+
+  /accounts:
+    get:
+      tags: [Accounts]
+      operationId: accountsGet
+      summary: List accounts
+      description: The accounts owned by the currently authorised user.
+      parameters:
+        - name: account_type
+          in: query
+          description: Filter to one kind of account.
+          schema:
+            type: string
+            enum: [uk_retail, uk_retail_joint]
+      responses:
+        "200":
+          description: The user's accounts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accounts]
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/account'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+
+  /balance:
+    get:
+      tags: [Balance]
+      operationId: balanceGet
+      summary: Read balance
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      responses:
+        "200":
+          description: The account's balance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/balance'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+
+  /pots:
+    get:
+      tags: [Pots]
+      operationId: potsGet
+      summary: List pots
+      description: |
+        The pots owned by the currently authorised user that belong to the
+        given account.
+      parameters:
+        - name: current_account_id
+          in: query
+          required: true
+          description: The id of the account the pots belong to.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The account's pots.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pots]
+                properties:
+                  pots:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/pot'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+
+  /pots/{pot_id}/deposit:
+    parameters:
+      - name: pot_id
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      tags: [Pots]
+      operationId: potDepositPut
+      summary: Deposit into a pot
+      description: Moves money from one of the user's accounts into one of their pots.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [source_account_id, amount, dedupe_id]
+              properties:
+                source_account_id:
+                  type: string
+                  description: The account to withdraw from.
+                amount:
+                  $ref: '#/components/schemas/amount'
+                dedupe_id:
+                  type: string
+                  description: |
+                    Keep this the same between retries, or a retry becomes a
+                    second deposit.
+      responses:
+        "200":
+          description: The pot, with its new balance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/pot'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+
+  /pots/{pot_id}/withdraw:
+    parameters:
+      - name: pot_id
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      tags: [Pots]
+      operationId: potWithdrawPut
+      summary: Withdraw from a pot
+      description: |
+        Moves money from one of the user's pots into one of their accounts. A
+        pot with added security cannot be withdrawn from through the API.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [destination_account_id, amount, dedupe_id]
+              properties:
+                destination_account_id:
+                  type: string
+                  description: The account to deposit into.
+                amount:
+                  $ref: '#/components/schemas/amount'
+                dedupe_id:
+                  type: string
+                  description: |
+                    Keep this the same between retries, or a retry becomes a
+                    second withdrawal.
+      responses:
+        "200":
+          description: The pot, with its new balance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/pot'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+
+  /transactions:
+    get:
+      tags: [Transactions]
+      operationId: transactionsGet
+      summary: List transactions
+      description: |
+        The transactions on an account. Five minutes after the user
+        authenticates, a client can only read the last 90 days; the whole
+        history is available before that.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/since'
+        - $ref: '#/components/parameters/before'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/expandMerchant'
+      responses:
+        "200":
+          description: The account's transactions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [transactions]
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/transaction'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+
+  /transactions/{transaction_id}:
+    parameters:
+      - name: transaction_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Transactions]
+      operationId: transactionGet
+      summary: Retrieve transaction
+      parameters:
+        - $ref: '#/components/parameters/expandMerchant'
+      responses:
+        "200":
+          description: The transaction.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [transaction]
+                properties:
+                  transaction:
+                    $ref: '#/components/schemas/transaction'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+        "404": { $ref: '#/components/responses/404' }
+    patch:
+      tags: [Transactions]
+      operationId: transactionPatch
+      summary: Annotate transaction
+      description: |
+        Stores your own key-value annotations against the transaction. An empty
+        value deletes the key. The `notes` key is applied to the transaction's
+        top-level `notes` as well.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              description: |
+                Each key is sent as `metadata[name]`, which is why this is not
+                a nested object on the wire.
+              additionalProperties:
+                type: string
+              examples:
+                - { "metadata[foo]": "bar" }
+      responses:
+        "200":
+          description: The transaction, with its metadata as it now stands.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [transaction]
+                properties:
+                  transaction:
+                    $ref: '#/components/schemas/transaction'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+        "404": { $ref: '#/components/responses/404' }
+
+  /feed:
+    post:
+      tags: [Feed items]
+      operationId: feedItemPost
+      summary: Create feed item
+      description: |
+        Adds an item to the user's feed, which they can dismiss. The reference
+        supports one type, `basic`, whose params are described here.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [account_id, type, params]
+              properties:
+                account_id:
+                  type: string
+                type:
+                  type: string
+                  enum: [basic]
+                url:
+                  type: string
+                  description: |
+                    Opened when the item is tapped. Without one, the app shows
+                    a fallback view built from the title and body.
+                params:
+                  type: object
+                  description: |
+                    Sent as `params[title]` and so on. The keys depend on
+                    `type`; these are `basic`'s.
+                  required: [title, image_url]
+                  properties:
+                    title:
+                      type: string
+                    image_url:
+                      type: string
+                      description: Animated GIFs work.
+                    body:
+                      type: string
+                    background_color:
+                      type: string
+                      pattern: '^#[0-9a-fA-F]{6}$'
+                    title_color:
+                      type: string
+                      pattern: '^#[0-9a-fA-F]{6}$'
+                    body_color:
+                      type: string
+                      pattern: '^#[0-9a-fA-F]{6}$'
+      responses:
+        "200": { $ref: '#/components/responses/empty' }
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+
+  /attachment/upload:
+    post:
+      tags: [Attachments]
+      operationId: attachmentUploadPost
+      summary: Upload attachment
+      description: |
+        Asks for a temporary URL to upload a file to. Upload the file there,
+        then register the resulting `file_url` against a transaction.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [file_name, file_type, content_length]
+              properties:
+                file_name:
+                  type: string
+                file_type:
+                  type: string
+                  description: The content type of the file.
+                content_length:
+                  type: integer
+                  description: |
+                    The Content-Length of the upload request body, in bytes.
+      responses:
+        "200":
+          description: Where to put the file, and where it will then live.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [file_url, upload_url]
+                properties:
+                  file_url:
+                    type: string
+                    description: The URL of the file once uploaded.
+                  upload_url:
+                    type: string
+                    description: The URL to POST the file to.
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+
+  /attachment/register:
+    post:
+      tags: [Attachments]
+      operationId: attachmentRegisterPost
+      summary: Register attachment
+      description: |
+        Attaches an image to a transaction, where it shows on the transaction's
+        detail page. The image may be one uploaded to Monzo or one you host.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [external_id, file_url, file_type]
+              properties:
+                external_id:
+                  type: string
+                  description: The id of the transaction to attach to.
+                file_url:
+                  type: string
+                file_type:
+                  type: string
+      responses:
+        "200":
+          description: The attachment.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [attachment]
+                properties:
+                  attachment:
+                    $ref: '#/components/schemas/attachment'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+
+  /attachment/deregister:
+    post:
+      tags: [Attachments]
+      operationId: attachmentDeregisterPost
+      summary: Deregister attachment
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: string
+                  description: The id of the attachment to deregister.
+      responses:
+        "200": { $ref: '#/components/responses/empty' }
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+
+  /transaction-receipts:
+    put:
+      tags: [Receipts]
+      operationId: receiptPut
+      summary: Create receipt
+      description: |
+        Attaches line-item purchase data to a transaction. `external_id` is the
+        idempotency key: the same one again updates the receipt in place. This
+        endpoint takes JSON, not a form-encoded body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/receipt'
+      responses:
+        "200":
+          description: |
+            Success. The reference describes this body as empty in one place
+            and as carrying `receipt_id` in another, so neither is required.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  receipt_id:
+                    type: string
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+    get:
+      tags: [Receipts]
+      operationId: receiptGet
+      summary: Retrieve receipt
+      description: A receipt of your own, by the external id you gave it.
+      parameters:
+        - $ref: '#/components/parameters/externalId'
+      responses:
+        "200":
+          description: The receipt.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [receipt]
+                properties:
+                  receipt:
+                    $ref: '#/components/schemas/receipt'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+        "404": { $ref: '#/components/responses/404' }
+    delete:
+      tags: [Receipts]
+      operationId: receiptDelete
+      summary: Delete receipt
+      parameters:
+        - $ref: '#/components/parameters/externalId'
+      responses:
+        "200": { $ref: '#/components/responses/empty' }
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+        "404": { $ref: '#/components/responses/404' }
+
+  /webhooks:
+    post:
+      tags: [Webhooks]
+      operationId: webhookPost
+      summary: Register a webhook
+      description: |
+        Each matching event becomes a POST to the URL given. A failed call is
+        retried up to five times, with exponential backoff.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [account_id, url]
+              properties:
+                account_id:
+                  type: string
+                url:
+                  type: string
+      responses:
+        "200":
+          description: The webhook.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [webhook]
+                properties:
+                  webhook:
+                    $ref: '#/components/schemas/webhook'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+    get:
+      tags: [Webhooks]
+      operationId: webhooksGet
+      summary: List webhooks
+      description: The webhooks your application has registered on an account.
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      responses:
+        "200":
+          description: The webhooks registered on the account.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [webhooks]
+                properties:
+                  webhooks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/webhook'
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+
+  /webhooks/{webhook_id}:
+    parameters:
+      - name: webhook_id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [Webhooks]
+      operationId: webhookDelete
+      summary: Delete a webhook
+      responses:
+        "200": { $ref: '#/components/responses/empty' }
+        "400": { $ref: '#/components/responses/400' }
+        "401": { $ref: '#/components/responses/401' }
+        "403": { $ref: '#/components/responses/403' }
+        "404": { $ref: '#/components/responses/404' }
+
+# What Monzo sends to a registered webhook. Nothing in this repository calls
+# these -- they are the other direction -- but they are part of the API, and a
+# 3.1 document is where they belong.
+webhooks:
+  transaction.created:
+    post:
+      tags: [Webhooks]
+      operationId: transactionCreatedWebhook
+      summary: A transaction was created
+      description: |
+        Sent as soon as a new transaction appears in the account. The merchant
+        arrives expanded.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, data]
+              properties:
+                type:
+                  const: transaction.created
+                data:
+                  $ref: '#/components/schemas/transaction'
+      responses:
+        "200":
+          description: |
+            Anything other than a success is retried up to five times.
