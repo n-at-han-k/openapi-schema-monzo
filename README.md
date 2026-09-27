@@ -5,11 +5,15 @@ API](https://docs.monzo.com), and a conformance suite that checks Monzo against
 it.
 
 Monzo publishes prose. `monzo_api.yaml` is that prose turned into something
-machine-readable: every endpoint the reference documents, with the schemas its
-examples and its property tables describe. Nothing is invented — a field the
-reference does not mention is not described, and no object forbids properties
-it does not name, because the reference says outright that transactions carry
-more than it documents.
+machine-readable: all 21 operations the reference documents, the schemas its
+examples and property tables describe, and the `transaction.created` webhook.
+Nothing is invented — a field the reference does not mention is not described,
+and no object forbids properties it does not name, because the reference says
+outright that transactions carry more than it documents.
+
+It already disagrees with the reference in one place, and says so where it
+does: an invalid access token answers `400 bad_request.invalid_token`, not the
+`401` the reference describes.
 
 ## The suite
 
@@ -26,19 +30,45 @@ response against the schema in it, so the document is the assertion and no
 expectation is written twice.
 
 ```shell
-MONZO_TOKEN=... bundle exec rspec
+MONZO_TOKEN=...                              # reads only
+MONZO_TOKEN=... MONZO_MUTATE=1               # and writes it can undo
+MONZO_TOKEN=... MONZO_MUTATE=1 MONZO_MONEY=1 # and the two pot operations
+bundle exec rspec
 ```
 
 A token from the [API playground](https://developers.monzo.com) is enough.
 
-Read-only by default: every method other than `GET` is skipped unless
-`MONZO_MUTATE=1`. Monzo answers `200` to a create just as it does to a read, so
-nothing in the document distinguishes them, and the obvious way to test
-"deposit into a pot" is to move real money on every run.
+Read-only by default, in two steps, because Monzo answers `200` to a create
+just as it does to a read and nothing in the document tells them apart:
 
-Path parameters and required query arguments come from `spec/fixtures.yml`,
-which ships empty — the suite talks to a real account, and only you know which
-pot is safe to touch. An operation with no fixture skips rather than guessing.
+* every method other than `GET` waits for `MONZO_MUTATE=1`, and everything the
+  suite creates it takes back — the receipt it writes it deletes, the
+  attachment it registers it deregisters, the webhook it registers it deletes,
+  and a failed cleanup fails the run;
+* the two pot operations move real money, so they wait for `MONZO_MONEY=1` as
+  well. They move one penny, and the pair of them puts it back.
+
+Ids are neither hand-written nor guessed. `spec/fixtures.yml` asks for
+`$account_id`, `$pot_id`, `$transaction_id` and the rest, and the suite
+discovers them from the account the token belongs to — `/accounts` for an
+account, `/pots` for a pot, `/transactions` for a transaction, `/webhooks` for
+a webhook. An operation whose discovery comes back empty skips with the reason;
+a 404 that passes because 404 is documented proves nothing. Override any of it
+with a literal in the same file.
+
+`bundle exec rake` lints the document and runs the suite; `rake generate`
+regenerates `spec/api`. CI does the same on GitHub Actions, GitLab and Travis,
+and checks that `spec/api` is what the document generates. Set `MONZO_TOKEN` as
+a secret to have CI actually talk to Monzo.
+
+## The gem
+
+`monzo.gemspec` packages the document, for anything that wants to read it
+rather than eyeball it:
+
+```ruby
+YAML.safe_load_file(Monzo::SCHEMA)
+```
 
 ## Not covered
 

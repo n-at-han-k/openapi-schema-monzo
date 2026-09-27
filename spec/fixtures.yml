@@ -1,27 +1,102 @@
-# The values this suite reads. It talks to a REAL Monzo account, so nothing is
-# invented: an id here is one you are content for a request to touch.
+# What each operation is called with. A value beginning with `$` is discovered
+# from the account the token belongs to, so this file needs no editing: the
+# suite reads `/accounts` for an account id, `/pots` for a pot, `/transactions`
+# for a transaction and `/webhooks` for a webhook, and an operation whose
+# discovery comes back empty skips with a reason rather than guessing -- a 404
+# that passes because 404 is documented proves nothing.
 #
-# A path parameter or a required query argument with no value here skips its
-# examples rather than guessing -- a 400 that passes because 400 is documented
-# proves nothing.
+#   $account_id      the first account the token can see
+#   $pot_id          the first pot on that account that is not deleted
+#   $transaction_id  the most recent transaction on that account
+#   $webhook_id      a webhook this client registered, this run if need be
+#   $attachment_id   the attachment this run registered
+#   $external_id     a fixed key for the receipt this suite writes
+#   $dedupe_id       one value per run, so a retry is not a second deposit
 #
-# Fill in your own ids. `MONZO_TOKEN=... bundle exec rspec` with the file as it
-# stands checks /accounts and /ping/whoami and skips the rest.
+# Override any of it with a literal.
+#
+# Everything below other than a GET runs only when MONZO_MUTATE=1. The two pot
+# operations move real money -- one penny in, the same penny straight back out
+# -- which is why MONZO_MONEY=1 is a second, separate gate.
 params:
-  # pot_id: pot_0000778xxfgh4iu8z83nWb
-  # transaction_id: tx_00008zIcpb1TB4yeIFXMzx
-  # webhook_id: webhook_000091yhhOmrXQaVZ1Irsv
+  pot_id: $pot_id
+  transaction_id: $transaction_id
+  webhook_id: $webhook_id
 
 paths:
-  # /balance:
-  #   query: { account_id: acc_00009237aqC8c5umZmrRdh }
-  # /pots:
-  #   query: { current_account_id: acc_00009237aqC8c5umZmrRdh }
-  # /transactions:
-  #   query: { account_id: acc_00009237aqC8c5umZmrRdh, limit: 10, "expand[]": merchant }
-  # /transactions/{transaction_id}:
-  #   query: { "expand[]": merchant }
-  # /webhooks:
-  #   query: { account_id: acc_00009237aqC8c5umZmrRdh }
-  # /transaction-receipts:
-  #   query: { external_id: test-receipt-1 }
+  /balance:
+    query: { account_id: $account_id }
+
+  /pots:
+    query: { current_account_id: $account_id }
+
+  /pots/{pot_id}/deposit:
+    money: true
+    form:
+      source_account_id: $account_id
+      amount: 1
+      dedupe_id: $dedupe_id
+
+  /pots/{pot_id}/withdraw:
+    money: true
+    form:
+      destination_account_id: $account_id
+      amount: 1
+      dedupe_id: $dedupe_id
+
+  /transactions:
+    query:
+      account_id: $account_id
+      limit: 10
+      "expand[]": merchant
+
+  /transactions/{transaction_id}:
+    query: { "expand[]": merchant }
+    # PATCH: metadata is private to this client, so a key of its own is the one
+    # annotation here that cannot disturb anything the user sees.
+    form: { "metadata[openapi_schema_monzo]": checked }
+
+  /feed:
+    form:
+      account_id: $account_id
+      type: basic
+      params[title]: openapi-schema-monzo
+      params[image_url]: https://monzo.com/static/images/favicon.png
+      params[body]: This feed item was created by a conformance run.
+
+  /attachment/upload:
+    form:
+      file_name: openapi-schema-monzo.png
+      file_type: image/png
+      content_length: 12345
+
+  /attachment/register:
+    form:
+      external_id: $transaction_id
+      file_type: image/png
+      file_url: https://monzo.com/static/images/favicon.png
+
+  /attachment/deregister:
+    # The attachment this run registered: registering one and leaving it on a
+    # transaction is not a conformance check, it is litter.
+    form: { id: $attachment_id }
+
+  /transaction-receipts:
+    query: { external_id: $external_id }
+    body:
+      transaction_id: $transaction_id
+      external_id: $external_id
+      total: 1
+      currency: GBP
+      items:
+        - description: A conformance run
+          quantity: 1
+          unit: ""
+          amount: 1
+          currency: GBP
+
+  /webhooks:
+    query: { account_id: $account_id }
+    form:
+      account_id: $account_id
+      url: https://example.com/openapi-schema-monzo
